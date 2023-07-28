@@ -1,9 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-
 const app = express();
 const port = process.env.PORT || 5000;
+require("dotenv").config();
 
 // Parse incoming requests with JSON payloads
 app.use(express.json());
@@ -15,6 +15,8 @@ app.get("/", (req, res) => {
   console.log("Diabetes Prediction Running");
   res.send("Diabetes Prediction Running");
 });
+
+// -----------------------------------------Prediction api------------------------------------------------------------------------
 
 app.post("/make-predictiongbhi", async (req, res) => {
   console.log(req);
@@ -52,6 +54,81 @@ app.post("/make-predictiongbhi", async (req, res) => {
     res.status(500).send({error: "Something went wrong"});
   }
 });
+// ---------------------------------------Prediction end------------------------------------------------------------------------
+
+// ------------------------------------MongoDb-----------------------------------------------------------------------
+
+const {MongoClient, ServerApiVersion} = require("mongodb");
+const uri = `mongodb+srv://${process.env.GLYDB_USERNAME}:${process.env.GLYDB_PASS}@cluster0.ofsmeh8.mongodb.net/?retryWrites=true&w=majority`;
+
+// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+});
+
+async function run() {
+  try {
+    // Connect the client to the server	(optional starting in v4.7)
+    await client.connect();
+
+    const usersCollection = client.db("Glycmeist").collection("users");
+
+    // creating the verify admin middleware
+    // const verifyAdmin = async (req, res, next) => {
+    //   const email = req.decoded.email;
+    //   const query = {email: email};
+    //   const user = await usersCollection.findOne(query);
+
+    //   if (user?.role !== "admin") {
+    //     return res.status(403).send({error: true, message: "Forbidden access"});
+    //   }
+    //   next();
+    // };
+    // saving users to db
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const query = {email: user.email};
+      const existingUser = await usersCollection.findOne(query);
+      console.log("user", user);
+      // console.log("existingUser:  ", existingUser);
+      if (existingUser) {
+        return res.send({message: "The User already exits"});
+      }
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    });
+    //-------------------------------------  CHECK ADMIN to get data using email--------------------------------------------------------------------------
+    app.get("/users/admin/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = {email: email};
+
+      const user = await usersCollection.findOne(query);
+      const result = {admin: user?.role === "admin"};
+      res.send(result);
+    });
+
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      console.log(result);
+      res.send(result);
+    });
+
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ping: 1});
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
+  } finally {
+    // Ensures that the client will close when you finish/error
+    // await client.close();
+  }
+}
+run().catch(console.dir);
+
 app.listen(port, () => {
   console.log("port:500");
 });
