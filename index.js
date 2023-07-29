@@ -78,16 +78,16 @@ async function run() {
     const usersCollection = client.db("Glycmeist").collection("users");
 
     // creating the verify admin middleware
-    // const verifyAdmin = async (req, res, next) => {
-    //   const email = req.decoded.email;
-    //   const query = {email: email};
-    //   const user = await usersCollection.findOne(query);
+    const verifyAdmin = async (req, res, next) => {
+      // const email = req.decoded.email;
+      const query = {email: email};
+      const user = await usersCollection.findOne(query);
 
-    //   if (user?.role !== "admin") {
-    //     return res.status(403).send({error: true, message: "Forbidden access"});
-    //   }
-    //   next();
-    // };
+      if (user?.role !== "admin") {
+        return res.status(403).send({error: true, message: "Forbidden access"});
+      }
+      next();
+    };
     // saving users to db
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -112,9 +112,18 @@ async function run() {
     });
 
     app.get("/users", async (req, res) => {
-      const result = await usersCollection.find().toArray();
-      console.log(result);
-      res.send(result);
+      const email = req.query.email;
+      console.log("email: ", email);
+      const query = {email: email};
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "admin") {
+        console.log("wrong user");
+        return res.status(403).send({error: true, message: "Forbidden access"});
+      } else {
+        const result = await usersCollection.find().toArray();
+        console.log(result);
+        res.send(result);
+      }
     });
 
     // Send a ping to confirm a successful connection
