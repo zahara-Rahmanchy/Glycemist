@@ -304,41 +304,59 @@ async function run() {
       }
     });
 
+    // -----------------------------------------------TO ADD Medicine-------------------------------------------------------------------
+    app.patch("/medicine/:email", async (req, res) => {
+      const email = req.params.email;
+      const {medicines} = req.body;
+      const user = await usersCollection.findOne({email: email});
+      console.log("medicines,", medicines);
+      const result = await usersCollection.updateOne(
+        {email: email},
+        {$set: {medicines}}
+      );
+      res.send(result);
+    });
+
     // -----------------------------------------------To store appointments------------------------------------------------------------
     // POST route to handle file upload and form data
-    app.post("/appointment", upload.single("file"), async (req, res) => {
-      const {
-        name,
-        age,
-        patientEmail,
-        doctorEmail,
-        mobileNumber,
-        problems,
-        date,
-      } = req.body;
-      const file = req.file;
 
-      try {
-        // Assuming you have a reference to your MongoDB collection named 'appointmentsCollection'
-        // Insert the appointment data into the collection
-        const appointment = {
-          name,
-          age,
-          patientEmail,
-          doctorEmail,
-          mobileNumber,
-          problems,
-          date,
-          fileName: file.originalname, // Store the original file name in the database
-          filePath: file.path, // Store the file path in the database
-        };
-        const result = await appointmentsCollection.insertOne(appointment);
+    app.post("/appointment", async (req, res) => {
+      const appointmentData = req.body;
 
+      console.log("appointment", appointmentData);
+      // console.log("existingUser:  ", existingUser);
+
+      const result = await appointmentsCollection.insertOne(appointmentData);
+      res.send(result);
+    });
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // ------------------------------------------Doctor's dashboard--------------------------------------------------------------
+
+    // all appointments
+    app.get("/appointments/:email", async (req, res) => {
+      const email = req.params.email;
+      // console.log("email: ", email);
+      const query = {email: email};
+      const user = await usersCollection.findOne(query);
+      const ap = await appointmentsCollection
+        .find({patientEmail: email})
+        .toArray();
+      console.log(ap);
+      if (user?.role == "doctor") {
+        const result = await appointmentsCollection
+          .find({doctorEmail: email})
+          .sort({date: -1})
+          .toArray();
         console.log(result);
-        res.send({message: "Form data and file uploaded successfully!"});
-      } catch (error) {
-        console.error("Error uploading form data and file:", error);
-        res.status(500).send({message: "Error uploading form data and file."});
+        res.send(result);
+      } else {
+        const result = await appointmentsCollection
+          .find({patientEmail: email})
+          .sort({date: -1})
+          .toArray();
+        console.log(result);
+        res.send(result);
       }
     });
 
