@@ -4,6 +4,7 @@ const axios = require("axios");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
+const multer = require("multer");
 
 // Parse incoming requests with JSON payloads
 app.use(express.json());
@@ -15,7 +16,15 @@ app.get("/", (req, res) => {
   console.log("Diabetes Prediction Running");
   res.send("Diabetes Prediction Running");
 });
-
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname); // Use the original file name as the filename
+  },
+});
+const upload = multer({storage});
 // -----------------------------------------Prediction api------------------------------------------------------------------------
 
 app.post("/make-predictiongbhi", async (req, res) => {
@@ -76,6 +85,9 @@ async function run() {
     await client.connect();
 
     const usersCollection = client.db("Glycmeist").collection("users");
+    const appointmentsCollection = client
+      .db("Glycmeist")
+      .collection("appointments");
 
     // saving users to db
     app.post("/users", async (req, res) => {
@@ -110,7 +122,7 @@ async function run() {
         return res.status(403).send({error: true, message: "Forbidden access"});
       } else {
         const result = await usersCollection.find().toArray();
-        console.log(result);
+        // console.log(result);
         res.send(result);
       }
     });
@@ -154,7 +166,7 @@ async function run() {
 
     app.get("/doctors", async (req, res) => {
       const email = req.query.email;
-      console.log(email);
+      // console.log(email);
       const query = {role: "doctor", status: "approved"};
       const alldoctorsapproved = await usersCollection.find(query).toArray();
 
@@ -174,7 +186,7 @@ async function run() {
     app.patch("/patient/:email", async (req, res) => {
       const email = req.params.email;
       const values = req.body;
-      console.log("values: ", values);
+      // console.log("values: ", values);
 
       // Create the query filter using the email
       const query = {email: email};
@@ -208,14 +220,43 @@ async function run() {
           user.bloodSugar.push(newData);
         }
       }
+      if (values.HbA1c) {
+        newData = {
+          HbA1c: values.HbA1c,
+          date: values.date,
+        };
+        if (!user.HbA1c) {
+          user.HbA1c = [newData];
+          console.log("from if", user.HbA1c);
+        } else {
+          user.HbA1c.push(newData);
+          console.log("from else", user.HbA1c);
+        }
+      }
+      if (values.RBS) {
+        newData = {
+          RBS: values.RBS,
+          date: values.date,
+        };
+
+        if (!user.RBS) {
+          user.RBS = [newData];
+          console.log("from if", user.RBS);
+        } else {
+          user.RBS.push(newData);
+          console.log("from else", user.RBS);
+        }
+      }
       const result = await usersCollection.updateOne(query, {
         $set: {
           bloodSugar: user.bloodSugar,
           bloodPressure: user.bloodPressure,
+          RBS: user.RBS,
+          HbA1c: user.HbA1c,
         },
       });
 
-      // console.log(result, user);
+      console.log(result);
 
       res.send(result);
     });
@@ -235,11 +276,24 @@ async function run() {
         const response = {};
 
         if (user.bloodPressure) {
+          // sorting the date
+          user.bloodPressure.sort(
+            (a, b) => new Date(a.date) - new Date(b.date)
+          );
           response.bloodPressure = user.bloodPressure;
         }
 
         if (user.bloodSugar) {
+          user.bloodSugar.sort((a, b) => new Date(a.date) - new Date(b.date));
           response.bloodSugar = user.bloodSugar;
+        }
+        if (user.HbA1c) {
+          user.HbA1c.sort((a, b) => new Date(a.date) - new Date(b.date));
+          response.HbA1c = user.HbA1c;
+        }
+        if (user.RBS) {
+          user.RBS.sort((a, b) => new Date(a.date) - new Date(b.date));
+          response.RBS = user.RBS;
         }
 
         res.send(response);
@@ -247,6 +301,44 @@ async function run() {
         console.error("Error fetching data:", error);
         // Handle the error, e.g., send an error response with status code 500
         res.status(500).send({message: "Internal Server Error"});
+      }
+    });
+
+    // -----------------------------------------------To store appointments------------------------------------------------------------
+    // POST route to handle file upload and form data
+    app.post("/appointment", upload.single("file"), async (req, res) => {
+      const {
+        name,
+        age,
+        patientEmail,
+        doctorEmail,
+        mobileNumber,
+        problems,
+        date,
+      } = req.body;
+      const file = req.file;
+
+      try {
+        // Assuming you have a reference to your MongoDB collection named 'appointmentsCollection'
+        // Insert the appointment data into the collection
+        const appointment = {
+          name,
+          age,
+          patientEmail,
+          doctorEmail,
+          mobileNumber,
+          problems,
+          date,
+          fileName: file.originalname, // Store the original file name in the database
+          filePath: file.path, // Store the file path in the database
+        };
+        const result = await appointmentsCollection.insertOne(appointment);
+
+        console.log(result);
+        res.send({message: "Form data and file uploaded successfully!"});
+      } catch (error) {
+        console.error("Error uploading form data and file:", error);
+        res.status(500).send({message: "Error uploading form data and file."});
       }
     });
 
