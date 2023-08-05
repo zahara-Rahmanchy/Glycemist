@@ -9,13 +9,6 @@ const moment = require("moment");
 
 const serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 
-const firebaseAdmin = require("firebase-admin");
-const cron = require("node-cron");
-firebaseAdmin.initializeApp({
-  credential: firebaseAdmin.credential.cert(serviceAccount),
-  // Add any other configuration options if needed
-});
-
 // Parse incoming requests with JSON payloads
 app.use(express.json());
 
