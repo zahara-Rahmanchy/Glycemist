@@ -1,10 +1,20 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
+const pdfkit = require("pdfkit");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
-const multer = require("multer");
+const moment = require("moment");
+
+const serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
+
+const firebaseAdmin = require("firebase-admin");
+const cron = require("node-cron");
+firebaseAdmin.initializeApp({
+  credential: firebaseAdmin.credential.cert(serviceAccount),
+  // Add any other configuration options if needed
+});
 
 // Parse incoming requests with JSON payloads
 app.use(express.json());
@@ -16,48 +26,49 @@ app.get("/", (req, res) => {
   console.log("Diabetes Prediction Running");
   res.send("Diabetes Prediction Running");
 });
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "uploads/");
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname); // Use the original file name as the filename
-  },
-});
-const upload = multer({storage});
 // -----------------------------------------Prediction api------------------------------------------------------------------------
 
 app.post("/make-predictiongbhi", async (req, res) => {
-  console.log(req);
+  console.log(req.body);
+  const {firstform, secondform} = req.body;
+  // const secondform = req.secondform;
+  // console.log("firstform:", firstform, "secondform", secondform);
+  // res.send("ok");
   try {
-    const data = req.body;
-    // const data = {
-    //   HighBP: 1,
-    //   HighChol: 0,
-    //   BMI: 26.0,
-    //   HeartDiseaseorAttack: 0,
-    //   PhysActivity: 1,
-    //   Fruits: 0,
-    //   Veggies: 1,
-    //   GenHlth: 3,
-    //   MentHlth: 5.0,
-    //   PhysHlth: 30.0,
-    //   Sex: 1,
-    //   Age: 4,
-    //   Education: 6,
-    //   Income: 8,
-    // };
+    let p1, p2;
+    try {
+      // Make a POST request to the Render.com API,-health-indicators
+      const apiUrl =
+        "https://diabetesprediction-health-indicators.onrender.com/gbsylpredict";
+      const response = await axios.post(apiUrl, firstform);
+      p1 = response.data.prediction;
+      console.log("Response:", p1);
+    } catch (error) {
+      console.error("Error making the first API request:", error.message);
+    }
 
-    console.log("Input Data:", data); // Log the input data
-    console.log(data);
-    // Make a POST request to the Render.com API
-    const apiUrl =
-      "https://diabetesprediction-health-indicators.onrender.com/gbsylpredict";
-    const response = await axios.post(apiUrl, data);
+    try {
+      // Make a POST request to the second API, sylhet diabetes dataset api
+      const apiUrl2 = "https://sylhetdiabetes.onrender.com/gradientBsylhet";
+      const response2 = await axios.post(apiUrl2, secondform);
+      p2 = response2.data.prediction;
+      console.log("Response2:", p2);
+    } catch (error) {
+      console.error("Error making the second API request:", error.message);
+    }
 
-    const prediction = response.data;
-    console.log(response);
-    res.send(prediction);
+    let result;
+    if (p1 == 0 && p2 == "Negative") {
+      res.status(200).send({risk: 0}); //no risk
+    } else if ((p1 == 0 && p2 == "Positive") || (p1 == 1 && p2 == "Negative")) {
+      res.status(200).send({risk: 1}); //medium
+    } else if (p1 == 1 && p2 == "Positive") {
+      res.status(200).send({risk: 2}); //high
+    }
+
+    // const prediction = response.data;
+    // console.log(response, "\nresponse2", response2);
+    // res.send(prediction);
   } catch (error) {
     console.error("Error making prediction:", error.message);
     res.status(500).send({error: "Something went wrong"});
@@ -65,9 +76,30 @@ app.post("/make-predictiongbhi", async (req, res) => {
 });
 // ---------------------------------------Prediction end------------------------------------------------------------------------
 
+function sendNotification(token, medicineName) {
+  const messaging = firebaseAdmin.messaging();
+  const message = {
+    token,
+    notification: {
+      title: `Time to take ${medicineName}`,
+      body: `It's time to take your medicine ${medicineName}`,
+    },
+  };
+
+  messaging
+    .send(message)
+    .then(response => {
+      console.log("Successfully sent message:", response);
+    })
+    .catch(error => {
+      // console.log("Error sending message:", error);
+    });
+}
+
 // ------------------------------------MongoDb-----------------------------------------------------------------------
 
 const {MongoClient, ServerApiVersion, ObjectId} = require("mongodb");
+const {response} = require("express");
 const uri = `mongodb+srv://${process.env.GLYDB_USERNAME}:${process.env.GLYDB_PASS}@cluster0.ofsmeh8.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -94,7 +126,7 @@ async function run() {
       const user = req.body;
       const query = {email: user.email};
       const existingUser = await usersCollection.findOne(query);
-      console.log("user", user);
+      //console.log("user", user)
       // console.log("existingUser:  ", existingUser);
       if (existingUser) {
         return res.send({message: "The User already exits"});
@@ -102,6 +134,22 @@ async function run() {
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
+
+    // ------------------------------------checking current user and sending data for user profile---------------------------------
+
+    app.get("/user/:email", async (req, res) => {
+      const user = await usersCollection.findOne({email: req.params.email});
+      res.send(user);
+    });
+
+    // -------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------------------
+
+    // ... (existing code)
+
+    // -------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------------------------------------------
+
     //-------------------------------------  CHECK ADMIN to get data using email--------------------------------------------------------------------------
     app.get("/users/admin/:email", async (req, res) => {
       const email = req.params.email;
@@ -143,7 +191,7 @@ async function run() {
       }
     });
 
-    // -----------------------------TO approve doctors-----------------------------------------------------
+    // -----------------------------TO approve doctors by clicking approve-----------------------------------------------------
     app.patch("/doctors/:id", async (req, res) => {
       const id = req.params.id;
       const status = req.body.status;
@@ -161,28 +209,43 @@ async function run() {
       const result = await usersCollection.updateOne(query, updatedDoc);
       res.send(result);
     });
-    // --------------------------------------------------------------------------------------------------------
-    // ---------------------------------------Showing doctors list to users-----------------------------------
+    // -----------------------------------------delete user----------------------------------------------------------------------
+    // $or operator to check if the "id" matches either directly as a string or as an ObjectId
 
+    app.delete("/deletedoctor/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const query = {$or: [{_id: id}, {_id: new ObjectId(id)}]};
+      const result = await usersCollection.deleteOne(query);
+      console.log("query", query, "result", result);
+      res.send(result);
+    });
+    // --------------------------------------------------------------------------------------------------------
+    // --------------------------------------- and check doctors----------------------------------------------hook
+
+    app.get("/users/doctor/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = {email: email, status: "approved"};
+
+      const user = await usersCollection.findOne(query);
+      const result = {doctor: user?.role === "doctor"};
+      res.send(result);
+    });
+    // -------------------------------------------------------Showing doctors list to users------------------------------------
     app.get("/doctors", async (req, res) => {
       const email = req.query.email;
       // console.log(email);
       const query = {role: "doctor", status: "approved"};
       const alldoctorsapproved = await usersCollection.find(query).toArray();
 
-      const Doctor = await usersCollection.findOne({
-        email: email,
-        status: "approved",
-        role: "doctor",
-      });
-      const isDoctor = {
-        doctor: Doctor?.role === "doctor" && Doctor?.status === "approved",
-      };
-      console.log(alldoctorsapproved, "\n isdoctor", isDoctor);
-      res.send({alldoctorsapproved, isDoctor});
+      // const user = await usersCollection.findOne(query);
+      // const result = {admin: user?.role === "admin"};
+      console.log(alldoctorsapproved);
+      res.send(alldoctorsapproved);
     });
 
-    // --------------------------------------------Patient's Dashboard--------------------------------------------------------------
+    // --------------------------------------------Patient's/users Dashboard--------------------------------------------------------------
+    // charts
     app.patch("/patient/:email", async (req, res) => {
       const email = req.params.email;
       const values = req.body;
@@ -307,14 +370,52 @@ async function run() {
     // -----------------------------------------------TO ADD Medicine-------------------------------------------------------------------
     app.patch("/medicine/:email", async (req, res) => {
       const email = req.params.email;
+      const filter = {email: email};
       const {medicines} = req.body;
-      const user = await usersCollection.findOne({email: email});
-      console.log("medicines,", medicines);
-      const result = await usersCollection.updateOne(
-        {email: email},
-        {$set: {medicines}}
+      console.log(req.body);
+      const updateResult = await usersCollection.findOneAndUpdate(
+        filter,
+        {$addToSet: {medicines: {$each: medicines}}},
+        {returnOriginal: false}
       );
-      res.send(result);
+
+      // console.log(updateResult);
+
+      res.send(updateResult);
+    });
+
+    // --------------------------------------------show medicine list------------------------------------------------------------
+    app.get("/medicines/:email", async (req, res) => {
+      const email = req.params.email;
+
+      const query = {email: email};
+      const med = await usersCollection.findOne(query);
+      // const {medicines} = user;
+      // console.log("med", med.medicines);
+      res.send(med);
+    });
+    // --------------------------------------------save prediction result --------------------------------------------------------
+    app.patch("/save-risk/:email", async (req, res) => {
+      const {value} = req.body;
+      console.log(value);
+      const query = {email: req.params.email};
+
+      let risk;
+      if (value == 0) {
+        risk = "No Risk";
+      }
+      if (value == 1) {
+        risk = "Moderate Risk";
+      }
+      if (value == 2) {
+        risk = "High Risk";
+      }
+      const doc = {
+        $set: {risk: risk},
+      };
+      const updated = await usersCollection.updateOne(query, doc);
+
+      res.send(updated);
     });
 
     // -----------------------------------------------To store appointments------------------------------------------------------------
@@ -336,7 +437,8 @@ async function run() {
     // all appointments
     app.get("/appointments/:email", async (req, res) => {
       const email = req.params.email;
-      // console.log("email: ", email);
+      const type = req.query.type;
+      console.log("email: ", email, "type", type);
       const query = {email: email};
       const user = await usersCollection.findOne(query);
       const ap = await appointmentsCollection
@@ -348,8 +450,9 @@ async function run() {
           .find({doctorEmail: email})
           .sort({date: -1})
           .toArray();
-        console.log(result);
         res.send(result);
+
+        // console.log(result);
       } else {
         const result = await appointmentsCollection
           .find({patientEmail: email})
@@ -358,6 +461,35 @@ async function run() {
         console.log(result);
         res.send(result);
       }
+    });
+
+    // NOTIFICATIon---------------------------------------------------------------------------------
+
+    app.post("/store-fcm-token/:email", async (req, res) => {
+      const {email} = req.params;
+      const {token} = req.body;
+      // Store the FCM token in the database for the user
+      await usersCollection.updateOne(
+        {email: email},
+        {$set: {token}},
+        // { upsert: true },
+        (err, result) => {
+          if (err) {
+            console.error("Error storing FCM token:", err);
+            res.status(500).json({error: "Failed to store FCM token"});
+          } else {
+            console.log("FCM token stored:", token);
+            res.sendStatus(200);
+          }
+        }
+      );
+    });
+
+    // ------------tsrt---------------------
+    app.get("/generate-pdf/:email", async (req, res) => {
+      const user = await usersCollection.findOne({email: req.params.email});
+      console.log("user: ", user);
+      res.send(user);
     });
 
     // Send a ping to confirm a successful connection
