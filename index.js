@@ -1,13 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-const pdfkit = require("pdfkit");
+
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
-const moment = require("moment");
-
-const serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
 
 // Parse incoming requests with JSON payloads
 app.use(express.json());
