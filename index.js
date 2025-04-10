@@ -18,16 +18,65 @@ app.get("/", (req, res) => {
 });
 // -----------------------------------------Prediction api------------------------------------------------------------------------
 
+// app.post("/make-predictiongbhi", async (req, res) => {
+//   console.log(req.body);
+//   const {firstform, secondform} = req.body;
+//   // const secondform = req.secondform;
+//   // console.log("firstform:", firstform, "secondform", secondform);
+//   // res.send("ok");
+//   try {
+//     let p1, p2;
+//     try {
+//       // Make a POST request to the Render.com API,-health-indicators
+//       const apiUrl =
+//         "https://diabetesprediction-health-indicators.onrender.com/gbsylpredict";
+//       const response = await axios.post(apiUrl, firstform);
+//       p1 = response.data.prediction;
+//       console.log("Response:", p1);
+//     } catch (error) {
+//       console.error("Error making the first API request:", error.message);
+//     }
+
+//     try {
+//       // Make a POST request to the second API, sylhet diabetes dataset api
+//       const apiUrl2 = "https://sylhetdiabetes.onrender.com/gradientBsylhet";
+//       const response2 = await axios.post(apiUrl2, secondform);
+//       p2 = response2.data.prediction;
+//       console.log("Response2:", p2);
+//     } catch (error) {
+//       console.error("Error making the second API request:", error.message);
+//     }
+
+//     let result;
+//     if (p1 == (0 || null ) && p2 == "Negative") {
+//       console.log("no risk")
+//       res.status(200).send({risk: 0}); //no risk
+//     } else if ((p1 == (0 || null ) && p2 == "Positive") || (p1 == 1 && p2 == "Negative" || null)) {
+//       res.status(200).send({risk: 1}); //medium
+//     } else if (p1 == 1 && p2 == "Positive") {
+//       res.status(200).send({risk: 2}); //high
+//     }
+
+//     // const prediction = response.data;
+//     // console.log(response, "\nresponse2", response2);
+//     // res.send(prediction);
+//   } catch (error) {
+//     console.error("Error making prediction:", error.message);
+//     res.status(500).send({error: "Something went wrong"});
+//   }
+// });
 app.post("/make-predictiongbhi", async (req, res) => {
   console.log(req.body);
-  const {firstform, secondform} = req.body;
+  const { firstform, secondform } = req.body;
   // const secondform = req.secondform;
   // console.log("firstform:", firstform, "secondform", secondform);
   // res.send("ok");
   try {
     let p1, p2;
+    let errorOccurred = false;
+
+    // Try to make a POST request to the first API (Render.com - health indicators)
     try {
-      // Make a POST request to the Render.com API,-health-indicators
       const apiUrl =
         "https://diabetesprediction-health-indicators.onrender.com/gbsylpredict";
       const response = await axios.post(apiUrl, firstform);
@@ -35,35 +84,68 @@ app.post("/make-predictiongbhi", async (req, res) => {
       console.log("Response:", p1);
     } catch (error) {
       console.error("Error making the first API request:", error.message);
+      p1 = null; // Indicate the failure of the first request
+      errorOccurred = true;
     }
 
+    // Try to make a POST request to the second API (sylhet diabetes dataset)
     try {
-      // Make a POST request to the second API, sylhet diabetes dataset api
       const apiUrl2 = "https://sylhetdiabetes.onrender.com/gradientBsylhet";
       const response2 = await axios.post(apiUrl2, secondform);
       p2 = response2.data.prediction;
       console.log("Response2:", p2);
     } catch (error) {
       console.error("Error making the second API request:", error.message);
+      p2 = null; // Indicate the failure of the second request
+      errorOccurred = true;
     }
 
-    let result;
-    if (p1 == 0 && p2 == "Negative") {
-      res.status(200).send({risk: 0}); //no risk
-    } else if ((p1 == 0 && p2 == "Positive") || (p1 == 1 && p2 == "Negative")) {
-      res.status(200).send({risk: 1}); //medium
-    } else if (p1 == 1 && p2 == "Positive") {
-      res.status(200).send({risk: 2}); //high
+    // Handle response based on the predictions
+    if (p1 === null && p2 === null) {
+      // Both requests failed
+      res.status(500).send({ error: "Couldn't make prediction due to server slowdown" });
+    } else {
+      // If only one request succeeded, send its result
+      if (p1 !== null && p2 === null) {
+        if (p1 === 0) {
+          console.log("No risk from first API");
+          res.status(200).send({ risk: 0 }); // No risk
+        } else {
+          console.log("Medium or High risk from first API");
+          res.status(200).send({ risk: 1 }); // Medium risk
+        }
+      } else if (p1 === null && p2 !== null) {
+        if (p2 === "Negative") {
+          console.log("No risk from second API");
+          res.status(200).send({ risk: 0 }); // No risk
+        } else if (p2 === "Positive") {
+          console.log("Medium or High risk from second API");
+          res.status(200).send({ risk: 1 }); // Medium risk
+        }
+      } else {
+        // Both requests succeeded, compare the results
+        if (p1 == 0 && p2 == "Negative") {
+          console.log("No risk");
+          res.status(200).send({ risk: 0 }); // No risk
+        } else if (
+          (p1 == 0 && p2 == "Positive") ||
+          (p1 == 1 && p2 == "Negative") ||
+          p1 == null
+        ) {
+          console.log("Medium risk");
+          res.status(200).send({ risk: 1 }); // Medium risk
+        } else if (p1 == 1 && p2 == "Positive") {
+          console.log("High risk");
+          res.status(200).send({ risk: 2 }); // High risk
+        }
+      }
     }
-
-    // const prediction = response.data;
-    // console.log(response, "\nresponse2", response2);
-    // res.send(prediction);
   } catch (error) {
     console.error("Error making prediction:", error.message);
-    res.status(500).send({error: "Something went wrong"});
+    res.status(500).send({ error: "Something went wrong" });
   }
 });
+
 // ---------------------------------------Prediction end------------------------------------------------------------------------
 
 function sendNotification(token, medicineName) {
